@@ -19,7 +19,9 @@ use std::{
 use halo2_gadgets::sha256::{BlockWord, Sha256, Table16Chip, Table16Config, BLOCK_SIZE};
 
 #[derive(Default)]
-struct MyCircuit {}
+struct MyCircuit {
+    sha_count: u64,
+}
 
 impl Circuit<pallas::Base> for MyCircuit {
     type Config = Table16Config;
@@ -131,7 +133,7 @@ impl Circuit<pallas::Base> for MyCircuit {
             BlockWord(Value::known(0b00000000000000000000001000000000)),
         ];
 
-        for i in 0..1 {
+        for i in 0..self.sha_count {
             Sha256::digest(table16_chip.clone(), layouter.namespace(|| "'publick key'"), &input)?;
         }
 
@@ -139,13 +141,14 @@ impl Circuit<pallas::Base> for MyCircuit {
     }
 }
 
-fn main() {
-    println!("start test");
+fn process_one(k: u32, sha_count: u64) -> Result<(), Error> {
+    println!("start process, k={}, sha count={}", k, sha_count);
     // Initialize the polynomial commitment parameters
-    let params_path = Path::new("./sha256_params");
+    let params_path_str = format!("./sha256_params_k_{}", k);
+    let params_path = Path::new(params_path_str.as_str());
     if File::open(params_path).is_err() {
         println!("start get param {:?}", chrono::offset::Utc::now());
-        let params: Params<EqAffine> = Params::new(17);
+        let params: Params<EqAffine> = Params::new(k);
         let mut buf = Vec::new();
 
         params.write(&mut buf).expect("Failed to write params");
@@ -160,7 +163,7 @@ fn main() {
     let params: Params<EqAffine> =
         Params::read::<_>(&mut BufReader::new(params_fs)).expect("Failed to read params");
 
-    let empty_circuit: MyCircuit = MyCircuit {};
+    let empty_circuit: MyCircuit = MyCircuit { sha_count };
 
     // Initialize the proving key
     println!("start get kk {:?}", chrono::offset::Utc::now());
@@ -168,7 +171,7 @@ fn main() {
     let pk = keygen_pk(&params, vk, &empty_circuit).expect("keygen_pk should not fail");
     println!("end   get kk {:?}", chrono::offset::Utc::now());
 
-    let circuit: MyCircuit = MyCircuit {};
+    let circuit: MyCircuit = MyCircuit { sha_count };
 
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
     println!("start get proof {:?}", chrono::offset::Utc::now());
@@ -178,7 +181,16 @@ fn main() {
     let proof: Vec<u8> = transcript.finalize();
     println!("proof size: {:?}", proof.len());
 
-    let proof_path = Path::new("./sha256_proof");
+    let proof_path_str = format!("./sha256_proof_k_{}_count_{}", k, sha_count);
+    let proof_path = Path::new(proof_path_str.as_str());
     let mut file = File::create(&proof_path).expect("Failed to create sha256_proof");
     file.write_all(&proof[..]).expect("Failed to write proof");
+
+    Ok(())
 }
+
+fn main() {
+    process_one(17, 16).unwrap();
+}
+
+
